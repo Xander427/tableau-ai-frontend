@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ExtensionManifest xmlns="http://www.tableau.com/xml/extension_manifest">
+  <DashboardExtension id="aiQueryExtension" version="1.0">
+    <Name>AI Data Assistant</Name>
+    <Description>Ask natural-language questions about your Tableau data.</Description>
+    <SourceLocation>
+      <Url>https://YOUR-FRONTEND-URL/index.html</Url>
+    </SourceLocation>
+    <Permissions>
+      <Permission>full data</Permission>
+      <Permission>nativeApi</Permission>
+    </Permissions>
+  </DashboardExtension>
+</ExtensionManifest>
