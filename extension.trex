@@ -4,7 +4,7 @@
     <Name>AI Data Assistant</Name>
     <Description>Ask natural-language questions about your Tableau data.</Description>
     <SourceLocation>
-      <Url>https://YOUR-FRONTEND-URL/index.html</Url>
+      <Url>https://witty-bush-00501930f.3.azurestaticapps.net</Url>
     </SourceLocation>
     <Permissions>
       <Permission>full data</Permission>
