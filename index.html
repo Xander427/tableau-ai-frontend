@@ -28,7 +28,7 @@
         const response = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_query: question })
+          body: JSON.stringify({ query: question })
         });
 
         if (!response.ok) throw new Error("API request failed");
