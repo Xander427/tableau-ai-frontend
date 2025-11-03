@@ -36,7 +36,7 @@
         const data = await response.json();
         output.innerHTML = `
           <b>Summary:</b><br>${data.summary || "(no summary returned)"}<br><br>
-          <b>SQL Generated:</b><br><pre>${data.sql_generated || "(none)"}</pre>
+          <b>SQL Generated:</b><br><pre>${data.sql_query || "(none)"}</pre>
         `;
       } catch (err) {
         output.innerHTML = `<span style='color:red'>Error: ${err.message}</span>`;
