@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ExtensionManifest xmlns="http://www.tableau.com/xml/extension_manifest">
-  <DashboardExtension id="aiQueryExtension" version="1.0">
-    <Name>AI Data Assistant</Name>
-    <Description>Ask natural-language questions about your Tableau data.</Description>
-    <SourceLocation>
-      <Url>https://witty-bush-00501930f.3.azurestaticapps.net</Url>
-    </SourceLocation>
-    <Permissions>
-      <Permission>full data</Permission>
-      <Permission>nativeApi</Permission>
-    </Permissions>
-  </DashboardExtension>
-</ExtensionManifest>
+<manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
+  <dashboard-extension id="com.accenture.aidataassistant" extension-version="0.1.0">
+    <default-locale>en_US</default-locale>
+    <name>AI Data Assistant</name>
+    <description>Ask AI questions about your data directly in Tableau</description>
+    <author name="Xander" email="xander@example.com" website="https://tableau2.digital.accenture.com" />
+    <min-api-version>1.10</min-api-version>
+    <source-location>
+      <url>https://witty-bush-00501930f.3.azurestaticapps.net/</url>
+    </source-location>
+    <icon>iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=</icon> <!-- A 1x1 transparent PNG -->
+    <permissions>
+      <permission>full data</permission>
+    </permissions>
+  </dashboard-extension>
+</manifest>
