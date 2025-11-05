@@ -36,6 +36,7 @@
         const data = await response.json();
         output.innerHTML = `
           <b>Summary:</b><br>${data.summary || "(no summary returned)"}<br><br>
+          <b>Top Rows:</b><br><pre>${data.rows && data.rows.length ? JSON.stringify(data.rows, null, 2) : "(no rows returned)"}</pre><br>
           <b>SQL Generated:</b><br><pre>${data.sql || "(none)"}</pre>
         `;
       } catch (err) {
