@@ -40,21 +40,29 @@
           <b>SQL Generated:</b><br><pre>${data.sql || "(none)"}</pre>
         `;
 
-            // Apply Tableau filters (if available)
-    if (data.filters && Object.keys(data.filters).length > 0) {
-      const dashboard = tableau.extensions.dashboardContent.dashboard;
-      for (const [field, values] of Object.entries(data.filters)) {
-        try {
-          const worksheet = dashboard.worksheets.find(ws => ws.name === "Report Builder");
-          if (worksheet) {
-            await worksheet.applyFilterAsync(field, values, tableau.FilterUpdateType.REPLACE);
-            console.log(`✅ Applied filter ${field}: ${values}`);
-          }
-        } catch (err) {
-          console.error(`Failed to apply filter ${field}:`, err);
+        // Apply Tableau filters (if available)
+        if (window.tableau && data.filters && Object.keys(data.filters).length > 0) {
+            const dashboard = tableau.extensions.dashboardContent.dashboard;
+
+            for (const [field, values] of Object.entries(data.filters)) {
+                try {
+                    const worksheet = dashboard.worksheets.find(ws => ws.name === "Your Worksheet Name");
+                    if (worksheet) {
+                        await worksheet.applyFilterAsync(
+                            field,
+                            values,
+                            tableau.FilterUpdateType.REPLACE
+                        );
+                        console.log(`Applied filter ${field}: ${values}`);
+                    }
+                } catch (err) {
+                    console.error(`Failed to apply filter ${field}:`, err);
+                }
+            }
+        } else {
+            console.log("Filter API skipped — Tableau not detected or no filters returned.");
         }
-      }
-    }
+
 
       } catch (err) {
         output.innerHTML = `<span style='color:red'>Error: ${err.message}</span>`;
