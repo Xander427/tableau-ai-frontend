@@ -39,6 +39,23 @@
           <b>Top Rows:</b><br><pre>${data.rows && data.rows.length ? JSON.stringify(data.rows, null, 2) : "(no rows returned)"}</pre><br>
           <b>SQL Generated:</b><br><pre>${data.sql || "(none)"}</pre>
         `;
+
+            // Apply Tableau filters (if available)
+    if (data.filters && Object.keys(data.filters).length > 0) {
+      const dashboard = tableau.extensions.dashboardContent.dashboard;
+      for (const [field, values] of Object.entries(data.filters)) {
+        try {
+          const worksheet = dashboard.worksheets.find(ws => ws.name === "Report Builder");
+          if (worksheet) {
+            await worksheet.applyFilterAsync(field, values, tableau.FilterUpdateType.REPLACE);
+            console.log(`✅ Applied filter ${field}: ${values}`);
+          }
+        } catch (err) {
+          console.error(`Failed to apply filter ${field}:`, err);
+        }
+      }
+    }
+
       } catch (err) {
         output.innerHTML = `<span style='color:red'>Error: ${err.message}</span>`;
       }
