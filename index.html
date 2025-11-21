@@ -6,8 +6,11 @@
   <script src="https://cdn.jsdelivr.net/npm/@tableau/extensions-api@1.10.0/dist/tableau.extensions.1.10.0.min.js"></script>
   <script>
     async function init() {
+      console.log("window.tableau BEFORE init:", window.tableau);
+
       try {
         await tableau.extensions.initializeAsync();
+        console.log("window.tableau AFTER init:", window.tableau);
         console.log("✅ Tableau Extension initialized.");
       } catch (err) {
         console.error("Failed to initialize Tableau Extension:", err);
@@ -46,7 +49,7 @@
 
             for (const [field, values] of Object.entries(data.filters)) {
                 try {
-                    const worksheet = dashboard.worksheets.find(ws => ws.name === "Your Worksheet Name");
+                    const worksheet = dashboard.worksheets.find(ws => ws.name === "Report Builder");
                     if (worksheet) {
                         await worksheet.applyFilterAsync(
                             field,
