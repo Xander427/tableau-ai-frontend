@@ -43,21 +43,21 @@
     }
 
     const dashboard = tableau.extensions.dashboardContent.dashboard;
-    console.log("Attempting to apply filters. Worksheets:", dashboard.worksheets.map(w=>w.name));
+    let targetWs = dashboard.worksheets.find(ws => ws.name === "Report Builder ");
+    if (!targetWs) targetWs = dashboard.worksheets[0];
 
+    // 🔍 NEW: Log column names for this worksheet
+    const summary = await targetWs.getSummaryDataAsync({ maxRows: 1 });
+    console.log(`Summary columns for ${targetWs.name}:`,
+      summary.columns.map(c => c.fieldName)
+    );
+
+    // Apply filters
     for (const [field, values] of Object.entries(filtersObj)) {
-      let targetWs = dashboard.worksheets.find(ws => ws.name === "Report Builder ");
-      if (!targetWs) targetWs = dashboard.worksheets[0];
-
-      if (!targetWs) {
-        console.warn("No worksheet available to apply filter:", field);
-        continue;
-      }
-
       try {
         console.log(`Applying filter ${field} =>`, values, "to worksheet", targetWs.name);
         await targetWs.applyFilterAsync(field, values, tableau.FilterUpdateType.REPLACE);
-        console.log(`✅ Applied filter ${field} on ${targetWs.name}`);
+        console.log(`✅ Applied filter ${field}`);
       } catch (err) {
         console.error(`Failed to apply filter ${field}:`, err);
       }
@@ -75,7 +75,8 @@
       padding: 15px;
     }
     #askButton {
-      margin-top: 10px;
+      display: block;     /* makes it go to next line */
+      margin-top: 10px;   /* spacing */
       padding: 8px 16px;
       border: none;
       border-radius: 8px;
