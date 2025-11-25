@@ -52,6 +52,13 @@
       summary.columns.map(c => c.fieldName)
     );
 
+    const filters = await targetWs.getFiltersAsync();
+    console.log("Worksheet Filters:", filters.map(f => ({
+      fieldName: f.fieldName,
+      filterType: f.filterType
+    })));
+
+
     // Apply filters
     for (const [field, values] of Object.entries(filtersObj)) {
       try {
