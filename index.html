@@ -36,6 +36,29 @@
     }
   }
 
+  async function getFilterValueObj(worksheet, fieldName, rawValue) {
+    const summary = await worksheet.getSummaryDataAsync();
+    
+    // Find the column index
+    const colIndex = summary.columns.findIndex(
+      c => c.fieldName === fieldName
+    );
+    if (colIndex === -1) return null;
+
+    // Search rows for a matching entry
+    for (let row of summary.data) {
+      const cell = row[colIndex];
+      if (!cell) continue;
+
+      if (cell.formattedValue === rawValue) {
+        return cell;   // A real Tableau filter value object
+      }
+    }
+
+    return null;
+  }
+  
+
   async function applyFiltersFromResponse(filtersObj) {
     if (!window.tableau) {
       console.warn("Tableau not detected; skipping filter apply.");
@@ -63,18 +86,27 @@
     console.log("Filter values for", fieldName, ":", fieldFilter.appliedValues?.map(v => v.formattedValue));
 
     // Apply filters
-    for (const f of filters) {
-      console.log("=== FILTER FIELD:", f.fieldName, "===");
-      console.log("Filter type:", f.filterType);
+    for (const [fieldName, rawValues] of Object.entries(filtersObj)) {
 
-      if (f.filterType === "categorical") {
-        console.log("Valid member names:", f.appliedValues.map(v => v.formattedValue));
+      const tableauValues = [];
+
+      for (const v of rawValues) {
+        const obj = await getFilterValueObj(targetWs, fieldName, v);
+        if (obj) tableauValues.push(obj);
       }
 
-      if (f.filterType === "range") {
-        console.log("Min:", f.minValue, "Max:", f.maxValue);
+      if (tableauValues.length === 0) {
+        console.warn("No matching Tableau values for", fieldName);
+        continue;
       }
+
+      await targetWs.applyFilterAsync(
+        fieldName,
+        tableauValues,
+        tableau.FilterUpdateType.REPLACE
+      );
     }
+
   }
 
   document.addEventListener("DOMContentLoaded", init);
