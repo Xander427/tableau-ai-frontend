@@ -58,6 +58,9 @@
       filterType: f.filterType
     })));
 
+    const fieldName = "Platform"; // or Channel, etc.
+    const fieldFilter = filters.find(f => f.fieldName === fieldName);
+    console.log("Filter values for", fieldName, ":", fieldFilter.appliedValues?.map(v => v.formattedValue));
 
     // Apply filters
     for (const [field, values] of Object.entries(filtersObj)) {
