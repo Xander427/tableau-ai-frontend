@@ -63,13 +63,16 @@
     console.log("Filter values for", fieldName, ":", fieldFilter.appliedValues?.map(v => v.formattedValue));
 
     // Apply filters
-    for (const [field, values] of Object.entries(filtersObj)) {
-      try {
-        console.log(`Applying filter ${field} =>`, values, "to worksheet", targetWs.name);
-        await targetWs.applyFilterAsync(field, values, tableau.FilterUpdateType.REPLACE);
-        console.log(`✅ Applied filter ${field}`);
-      } catch (err) {
-        console.error(`Failed to apply filter ${field}:`, err);
+    for (const f of filters) {
+      console.log("=== FILTER FIELD:", f.fieldName, "===");
+      console.log("Filter type:", f.filterType);
+
+      if (f.filterType === "categorical") {
+        console.log("Valid member names:", f.appliedValues.map(v => v.formattedValue));
+      }
+
+      if (f.filterType === "range") {
+        console.log("Min:", f.minValue, "Max:", f.maxValue);
       }
     }
   }
