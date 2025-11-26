@@ -188,32 +188,13 @@
           continue;
         }
 
-        // Build an array of Tableau value objects
-        const tableauValues = [];
-        for (const v of rawVals) {
-          const obj = await getFilterValueObj(targetWs, fieldName, v);
-          if (obj) {
-            tableauValues.push(obj);
-          } else {
-            // If not found in summary, try to find in worksheet filter domain (appliedValues or domain if available)
-            if (wf && Array.isArray(wf.appliedValues) && wf.appliedValues.length) {
-              // wf.appliedValues contains objects with formattedValue
-              const match = wf.appliedValues.find(av => (String(av.formattedValue) || "").toLowerCase() === String(v).toLowerCase());
-              if (match) tableauValues.push(match);
-            }
-          }
-        }
+        // For categorical filters, just pass the string values directly
+        // Tableau will match them against its domain
+        const stringValues = rawVals.map(v => String(v).trim());
 
-        if (tableauValues.length === 0) {
-          console.warn(`No matching Tableau domain values found for ${fieldName} ->`, rawVals);
-          skipped.push(fieldName);
-          continue;
-        }
-
-        // Finally apply categorical filter
         try {
-          console.log(`Applying categorical filter ${fieldName} =>`, tableauValues.map(x => getCellFormattedValue(x)));
-          await targetWs.applyFilterAsync(fieldName, tableauValues, tableau.FilterUpdateType.REPLACE);
+          console.log(`Applying categorical filter ${fieldName} =>`, stringValues);
+          await targetWs.applyFilterAsync(fieldName, stringValues, tableau.FilterUpdateType.Replace);
           applied.push(fieldName);
         } catch (err) {
           console.error(`Failed to apply filter ${fieldName}:`, err);
