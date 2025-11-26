@@ -1,116 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
   <title>AI Data Assistant</title>
 
-  <!-- Local extension API -->
+  <!-- Local extension API - you already have this file in your site root -->
   <script src="tableau.extensions.1.14.0.min.js"></script>
-
-  <script>
-  async function init() {
-    try {
-      await tableau.extensions.initializeAsync();
-      console.log("✅ Tableau Extension initialized. window.tableau:", !!window.tableau);
-
-      // List worksheets for debugging
-      const dashboard = tableau.extensions.dashboardContent.dashboard;
-      console.log("Dashboard name:", dashboard.name);
-      console.log("Worksheets available:", dashboard.worksheets.map(w => w.name));
-
-      if (dashboard.worksheets.length) {
-        const ws = dashboard.worksheets[0];
-        console.log("First worksheet:", ws.name);
-
-        try {
-          const cols = await ws.getSummaryDataAsync({ maxRows: 1 });
-          console.log("Sample summary columns:",
-            cols.columns.map(c => ({ field: c.fieldName, dataType: c.dataType }))
-          );
-        } catch (e) {
-          console.warn("Could not fetch summary data:", e);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to initialize Tableau Extension:", err);
-    }
-  }
-
-  async function getFilterValueObj(worksheet, fieldName, rawValue) {
-    const summary = await worksheet.getSummaryDataAsync();
-    
-    // Find the column index
-    const colIndex = summary.columns.findIndex(
-      c => c.fieldName === fieldName
-    );
-    if (colIndex === -1) return null;
-
-    // Search rows for a matching entry
-    for (let row of summary.data) {
-      const cell = row[colIndex];
-      if (!cell) continue;
-
-      if (cell.formattedValue === rawValue) {
-        return cell;   // A real Tableau filter value object
-      }
-    }
-
-    return null;
-  }
-  
-
-  async function applyFiltersFromResponse(filtersObj) {
-    if (!window.tableau) {
-      console.warn("Tableau not detected; skipping filter apply.");
-      return;
-    }
-
-    const dashboard = tableau.extensions.dashboardContent.dashboard;
-    let targetWs = dashboard.worksheets.find(ws => ws.name === "Report Builder ");
-    if (!targetWs) targetWs = dashboard.worksheets[0];
-
-    // 🔍 NEW: Log column names for this worksheet
-    const summary = await targetWs.getSummaryDataAsync({ maxRows: 1 });
-    console.log(`Summary columns for ${targetWs.name}:`,
-      summary.columns.map(c => c.fieldName)
-    );
-
-    const filters = await targetWs.getFiltersAsync();
-    console.log("Worksheet Filters:", filters.map(f => ({
-      fieldName: f.fieldName,
-      filterType: f.filterType
-    })));
-
-    const fieldName = "Platform"; // or Channel, etc.
-    const fieldFilter = filters.find(f => f.fieldName === fieldName);
-    console.log("Filter values for", fieldName, ":", fieldFilter.appliedValues?.map(v => v.formattedValue));
-
-    // Apply filters
-    for (const [fieldName, rawValues] of Object.entries(filtersObj)) {
-
-      const tableauValues = [];
-
-      for (const v of rawValues) {
-        const obj = await getFilterValueObj(targetWs, fieldName, v);
-        if (obj) tableauValues.push(obj);
-      }
-
-      if (tableauValues.length === 0) {
-        console.warn("No matching Tableau values for", fieldName);
-        continue;
-      }
-
-      await targetWs.applyFilterAsync(
-        fieldName,
-        tableauValues,
-        tableau.FilterUpdateType.REPLACE
-      );
-    }
-
-  }
-
-  document.addEventListener("DOMContentLoaded", init);
-  </script>
 
   <style>
     body {
@@ -119,9 +14,19 @@
       margin: 0;
       padding: 15px;
     }
+
+    h2 { margin-top: 0; }
+    #question {
+      width: 100%;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
     #askButton {
-      display: block;     /* makes it go to next line */
-      margin-top: 10px;   /* spacing */
+      display: block;
+      margin-top: 10px;
       padding: 8px 16px;
       border: none;
       border-radius: 8px;
@@ -130,63 +35,251 @@
       font-weight: 500;
       cursor: pointer;
     }
+    #askButton:hover { background: #1e5fd1; }
+
+    #output {
+      margin-top: 15px;
+      padding: 10px;
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-height: 50vh;
+      overflow: auto;
+    }
+
+    .log { color: #333; font-size: 12px; margin-top: 6px; }
+    .warn { color: #b36b00; }
+    .err { color: #b00020; }
   </style>
+
+  <script>
+    // ---------- Initialization ----------
+    async function init() {
+      try {
+        await tableau.extensions.initializeAsync();
+        console.log("✅ Tableau Extension initialized. window.tableau:", !!window.tableau);
+
+        const dashboard = tableau.extensions.dashboardContent.dashboard;
+        console.log("Dashboard name:", dashboard.name);
+        console.log("Worksheets available:", dashboard.worksheets.map(w => w.name));
+
+      } catch (err) {
+        console.error("Failed to initialize Tableau Extension:", err);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+
+    // ---------- Helpers ----------
+    // Normalize names (trim) to avoid trailing-space mismatches
+    function normalizeName(n) { return (n || "").toString().trim(); }
+
+    // Try to find the right worksheet: prefer exact trimmed match, else fallback to first
+    function findWorksheetByName(dashboard, desiredName) {
+      if (!dashboard || !dashboard.worksheets || dashboard.worksheets.length === 0) return null;
+      const trimmed = normalizeName(desiredName);
+      const found = dashboard.worksheets.find(ws => normalizeName(ws.name) === trimmed);
+      if (found) return found;
+      // fallback: try includes
+      const fuzzy = dashboard.worksheets.find(ws => normalizeName(ws.name).includes(trimmed));
+      return fuzzy || dashboard.worksheets[0];
+    }
+
+    // Extract a usable formatted value from a summary cell
+    function getCellFormattedValue(cell) {
+      if (!cell) return null;
+      // historical API uses properties like formattedValue, _formattedValue, formatted
+      return cell.formattedValue ?? cell._formattedValue ?? cell.value ?? cell._value ?? null;
+    }
+
+    // Get a Tableau "value object" for a given field/value by scanning summary rows
+    // Returns the whole cell object (which Tableau accepts when applying categorical filters)
+    async function getFilterValueObj(worksheet, fieldName, rawValue) {
+      if (!worksheet) return null;
+      try {
+        // Ask for a larger sample in case the matching value isn't in the first few rows
+        const summary = await worksheet.getSummaryDataAsync({ maxRows: 10000 });
+        const colIndex = summary.columns.findIndex(c => normalizeName(c.fieldName) === normalizeName(fieldName));
+        if (colIndex === -1) {
+          // try case-insensitive or trimmed match
+          const altIndex = summary.columns.findIndex(c => normalizeName(c.fieldName).toLowerCase() === normalizeName(fieldName).toLowerCase());
+          if (altIndex === -1) return null;
+          else colIndex = altIndex;
+        }
+
+        for (const row of summary.data) {
+          const cell = row[colIndex];
+          const fv = getCellFormattedValue(cell);
+          if (fv === null || fv === undefined) continue;
+          // exact match first
+          if (String(fv) === String(rawValue)) return cell;
+          // case-insensitive match
+          if (String(fv).toLowerCase() === String(rawValue).toLowerCase()) return cell;
+        }
+
+        // not found
+        return null;
+      } catch (e) {
+        console.warn("getFilterValueObj error:", e);
+        return null;
+      }
+    }
+
+    // ---------- Core: apply filters from AI response ----------
+    // filtersObj: { FieldName: [value1, value2], ... }
+    async function applyFiltersFromResponse(filtersObj, desiredWorksheetName = "Report Builder ") {
+      if (!window.tableau) {
+        console.warn("Tableau object not detected; skipping filter apply.");
+        return { applied: [], skipped: Object.keys(filtersObj || {}) };
+      }
+
+      const dashboard = tableau.extensions.dashboardContent.dashboard;
+      const targetWs = findWorksheetByName(dashboard, desiredWorksheetName);
+      if (!targetWs) {
+        console.warn("No worksheet found to apply filters to.");
+        return { applied: [], skipped: Object.keys(filtersObj || {}) };
+      }
+
+      console.log("Applying filters to worksheet:", targetWs.name);
+      const applied = [];
+      const skipped = [];
+
+      // Get worksheet filter metadata so we know filter types
+      let worksheetFilters = [];
+      try {
+        worksheetFilters = await targetWs.getFiltersAsync();
+      } catch (e) {
+        console.warn("Could not retrieve worksheet filters metadata:", e);
+      }
+
+      for (const [fieldRaw, rawVals] of Object.entries(filtersObj || {})) {
+        const fieldName = fieldRaw; // keep original; matching is flexible
+        const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(fieldName));
+
+        // If the worksheet has a range filter for this field, and the AI provided two values, apply range
+        if (wf && wf.filterType === "range") {
+          // Expect rawVals like ["2025-01-01","2025-01-31"] or [min, max]
+          if (Array.isArray(rawVals) && rawVals.length >= 2) {
+            const min = rawVals[0];
+            const max = rawVals[1];
+            try {
+              console.log(`Applying range filter ${fieldName}:`, min, max);
+              await targetWs.applyRangeFilterAsync(fieldName, min, max);
+              applied.push(fieldName);
+            } catch (err) {
+              console.error(`Failed to apply range filter ${fieldName}:`, err);
+              skipped.push(fieldName);
+            }
+            continue;
+          } else {
+            console.warn(`Range filter ${fieldName} expected 2 values, got:`, rawVals);
+            skipped.push(fieldName);
+            continue;
+          }
+        }
+
+        // Otherwise treat as categorical
+        if (!Array.isArray(rawVals) || rawVals.length === 0) {
+          console.warn(`No values for filter ${fieldName}, skipping`);
+          skipped.push(fieldName);
+          continue;
+        }
+
+        // Build an array of Tableau value objects
+        const tableauValues = [];
+        for (const v of rawVals) {
+          const obj = await getFilterValueObj(targetWs, fieldName, v);
+          if (obj) {
+            tableauValues.push(obj);
+          } else {
+            // If not found in summary, try to find in worksheet filter domain (appliedValues or domain if available)
+            if (wf && Array.isArray(wf.appliedValues) && wf.appliedValues.length) {
+              // wf.appliedValues contains objects with formattedValue
+              const match = wf.appliedValues.find(av => (String(av.formattedValue) || "").toLowerCase() === String(v).toLowerCase());
+              if (match) tableauValues.push(match);
+            }
+          }
+        }
+
+        if (tableauValues.length === 0) {
+          console.warn(`No matching Tableau domain values found for ${fieldName} ->`, rawVals);
+          skipped.push(fieldName);
+          continue;
+        }
+
+        // Finally apply categorical filter
+        try {
+          console.log(`Applying categorical filter ${fieldName} =>`, tableauValues.map(x => getCellFormattedValue(x)));
+          await targetWs.applyFilterAsync(fieldName, tableauValues, tableau.FilterUpdateType.REPLACE);
+          applied.push(fieldName);
+        } catch (err) {
+          console.error(`Failed to apply filter ${fieldName}:`, err);
+          skipped.push(fieldName);
+        }
+      } // end for each filter
+
+      return { applied, skipped };
+    }
+
+    // ---------- askAI() - calls backend and then applies filters ----------
+    async function askAI() {
+      const question = document.getElementById("question").value.trim();
+      const output = document.getElementById("output");
+      if (!question) { output.innerText = "Please enter a question."; return; }
+      output.innerHTML = "<em>Thinking...</em>";
+
+      try {
+        const res = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: question })
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(()=>null);
+          throw new Error(`API request failed: ${res.status} ${res.statusText} ${text||""}`);
+        }
+
+        const data = await res.json();
+
+        output.innerHTML = `
+          <b>Summary:</b><br>${data.summary || "(no summary)"}<br><br>
+          <b>Top rows (sample):</b><br><pre>${JSON.stringify(data.rows?.slice(0,10) ?? [], null, 2)}</pre><br>
+          <b>SQL:</b><br><pre>${data.sql ?? "(none)"}</pre>
+        `;
+
+        if (data.filters && Object.keys(data.filters).length > 0) {
+          console.log("Filters returned by AI:", data.filters);
+
+          const result = await applyFiltersFromResponse(data.filters, "Report Builder ");
+          console.log("applyFiltersFromResponse result:", result);
+
+          output.innerHTML += `<div class="log">Filters applied: ${JSON.stringify(result.applied)}</div>`;
+          if (result.skipped && result.skipped.length) {
+            output.innerHTML += `<div class="warn">Filters skipped / not matched: ${JSON.stringify(result.skipped)}</div>`;
+          }
+        } else {
+          console.log("No filters returned from AI.");
+        }
+
+      } catch (err) {
+        console.error("askAI() error:", err);
+        output.innerHTML = `<div class="err">Error: ${err.message}</div>`;
+      }
+    }
+  </script>
 </head>
 
 <body>
   <h2>AI Data Assistant</h2>
   <p>Ask a question about your data:</p>
+
   <input id="question" placeholder="e.g., Show me Facebook spend by week" />
   <button id="askButton" onclick="askAI()">Ask</button>
+
   <div id="output"></div>
-
-  <!-- 🔥 Missing askAI() — now added -->
-  <script>
-  async function askAI() {
-    const question = document.getElementById("question").value.trim();
-    const output = document.getElementById("output");
-
-    if (!question) {
-      output.innerText = "Please enter a question.";
-      return;
-    }
-
-    output.innerHTML = "<em>Thinking...</em>";
-
-    try {
-      const response = await fetch(
-        "https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: question })
-        }
-      );
-
-      if (!response.ok) throw new Error("API request failed");
-
-      const data = await response.json();
-
-      // Display results
-      output.innerHTML = `
-        <b>Summary:</b><br>${data.summary || "(no summary)"}<br><br>
-        <b>Rows:</b><br><pre>${JSON.stringify(data.rows ?? [], null, 2)}</pre><br>
-        <b>SQL:</b><br><pre>${data.sql ?? "(none)"}</pre>
-      `;
-
-      // Apply filters
-      if (data.filters) {
-        console.log("Applying filters:", data.filters);
-        await applyFiltersFromResponse(data.filters);
-      } else {
-        console.log("No filters returned from AI.");
-      }
-
-    } catch (err) {
-      console.error("askAI() error:", err);
-      output.innerHTML = `<span style='color:red'>Error: ${err.message}</span>`;
-    }
-  }
-  </script>
 </body>
 </html>
