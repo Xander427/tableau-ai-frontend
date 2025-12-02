@@ -74,6 +74,22 @@
       }
     }
 
+    async function onAskButtonClick() {
+      try {
+        const dashboard = tableau.extensions.dashboardContent.dashboard;
+        const worksheet = findWorksheetByName(dashboard, "Report Builder");
+
+        console.log("🔍 Dumping filters after user manually cleared them...");
+        await dumpAllFilters(worksheet);
+      } catch (e) {
+        console.warn("Could not dump filters on Ask click:", e);
+      }
+
+      // Now run askAI()
+      await askAI();
+    }
+
+
     document.addEventListener("DOMContentLoaded", init);
 
     // ---------- Helpers ----------
@@ -388,7 +404,7 @@
   <p>Ask a question about your data:</p>
 
   <input id="question" placeholder="e.g., Show me Facebook spend by week" />
-  <button id="askButton" onclick="askAI()">Ask</button>
+  <button id="askButton" onclick="onAskButtonClick()">Ask</button>
 
   <div id="output"></div>
 </body>
