@@ -63,32 +63,13 @@
         console.log("✅ Tableau Extension initialized. window.tableau:", !!window.tableau);
 
         const dashboard = tableau.extensions.dashboardContent.dashboard;
-        const worksheet = dashboard.worksheets.find(ws => ws.name.trim() === "Report Builder");
         console.log("Dashboard name:", dashboard.name);
         console.log("Worksheets available:", dashboard.worksheets.map(w => w.name));
-
-        dumpAllFilters(worksheet);
 
       } catch (err) {
         console.error("Failed to initialize Tableau Extension:", err);
       }
     }
-
-    async function onAskButtonClick() {
-      try {
-        const dashboard = tableau.extensions.dashboardContent.dashboard;
-        const worksheet = findWorksheetByName(dashboard, "Report Builder");
-
-        console.log("🔍 Dumping filters after user manually cleared them...");
-        await dumpAllFilters(worksheet);
-      } catch (e) {
-        console.warn("Could not dump filters on Ask click:", e);
-      }
-
-      // Now run askAI()
-      await askAI();
-    }
-
 
     document.addEventListener("DOMContentLoaded", init);
 
@@ -110,90 +91,11 @@
     // Extract a usable formatted value from a summary cell
     function getCellFormattedValue(cell) {
       if (!cell) return null;
-      // historical API uses properties like formattedValue, _formattedValue, formatted
       return cell.formattedValue ?? cell._formattedValue ?? cell.value ?? cell._value ?? null;
     }
 
-    // Get a Tableau "value object" for a given field/value by scanning summary rows
-    // Returns the whole cell object (which Tableau accepts when applying categorical filters)
-    async function getFilterValueObj(worksheet, fieldName, rawValue) {
-      if (!worksheet) return null;
-      try {
-        // Ask for a larger sample in case the matching value isn't in the first few rows
-        const summary = await worksheet.getSummaryDataAsync({ maxRows: 10000 });
-        const colIndex = summary.columns.findIndex(c => normalizeName(c.fieldName) === normalizeName(fieldName));
-        if (colIndex === -1) {
-          // try case-insensitive or trimmed match
-          const altIndex = summary.columns.findIndex(c => normalizeName(c.fieldName).toLowerCase() === normalizeName(fieldName).toLowerCase());
-          if (altIndex === -1) return null;
-          else colIndex = altIndex;
-        }
-
-        for (const row of summary.data) {
-          const cell = row[colIndex];
-          const fv = getCellFormattedValue(cell);
-          if (fv === null || fv === undefined) continue;
-          // exact match first
-          if (String(fv) === String(rawValue)) return cell;
-          // case-insensitive match
-          if (String(fv).toLowerCase() === String(rawValue).toLowerCase()) return cell;
-        }
-
-        // not found
-        return null;
-      } catch (e) {
-        console.warn("getFilterValueObj error:", e);
-        return null;
-      }
-    }
-
-    async function dumpAllFilters(worksheet) {
-        console.log("=== Worksheet Filters ===");
-
-        const filters = await worksheet.getFiltersAsync();
-        console.log(filters);
-
-        for (const filter of filters) {
-            console.log(`\n=== FILTER FIELD: ${filter.fieldName} ===`);
-            console.log(`Filter type: ${filter.filterType}`);
-
-            try {
-                if (filter.filterType === "categorical") {
-                    const appliedValues = filter.appliedValues || [];
-
-                    // Print applied values (if any)
-                    console.log("Applied values:", appliedValues.map(v => v.formattedValue));
-
-                    // Print full domain values
-                    if (filter.getDomainAsync) {
-                        const domain = await filter.getDomainAsync();
-                        console.log("Valid member names:", domain.values.map(v => v.formattedValue));
-                    } else {
-                        console.log("No domain information available.");
-                    }
-                }
-
-                if (filter.filterType === "range") {
-                    const domain = await filter.getDomainAsync();
-                    console.log("Min:", domain.minValue);
-                    console.log("Max:", domain.maxValue);
-                }
-
-            } catch (err) {
-                console.warn(`Error reading filter ${filter.fieldName}:`, err);
-            }
-        }
-    }
-
-
-
     // ---------- Core: apply filters from AI response ----------
-    // In applyFiltersFromResponse, we need to:
-    // 1. Check if the field is actually a parameter
-    // 2. Validate filter values against the domain
-    // 3. Use exact field names and values
-
-    async function applyFiltersFromResponse(filtersObj, desiredWorksheetName = "Report Builder") {
+    async function applyFiltersFromResponse(filtersObj, desiredWorksheetName = "Report Builder ") {
       if (!window.tableau) {
         console.warn("Tableau object not detected; skipping filter apply.");
         return { applied: [], skipped: Object.keys(filtersObj || {}) };
@@ -276,7 +178,7 @@
           continue;
         }
 
-        // Get the actual field name from Tableau (with correct spacing/case)
+        // Get Tableau's actual field name (with correct spacing/case)
         const actualTableauFieldName = columns[colIndex].fieldName;
 
         // Find filter metadata
@@ -404,7 +306,7 @@
   <p>Ask a question about your data:</p>
 
   <input id="question" placeholder="e.g., Show me Facebook spend by week" />
-  <button id="askButton" onclick="onAskButtonClick()">Ask</button>
+  <button id="askButton" onclick="askAI()">Ask</button>
 
   <div id="output"></div>
 </body>
