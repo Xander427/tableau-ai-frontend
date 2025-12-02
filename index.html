@@ -129,8 +129,12 @@
     }
 
     // ---------- Core: apply filters from AI response ----------
-    // filtersObj: { FieldName: [value1, value2], ... }
-    async function applyFiltersFromResponse(filtersObj, desiredWorksheetName = "Report Builder ") {
+    // In applyFiltersFromResponse, we need to:
+    // 1. Check if the field is actually a parameter
+    // 2. Validate filter values against the domain
+    // 3. Use exact field names and values
+
+    async function applyFiltersFromResponse(filtersObj, desiredWorksheetName = "Report Builder") {
       if (!window.tableau) {
         console.warn("Tableau object not detected; skipping filter apply.");
         return { applied: [], skipped: Object.keys(filtersObj || {}) };
@@ -147,7 +151,7 @@
       const applied = [];
       const skipped = [];
 
-      // Get worksheet filter metadata so we know filter types
+      // Get current filter state
       let worksheetFilters = [];
       try {
         worksheetFilters = await targetWs.getFiltersAsync();
@@ -155,49 +159,131 @@
         console.warn("Could not retrieve worksheet filters metadata:", e);
       }
 
-      for (const [fieldRaw, rawVals] of Object.entries(filtersObj || {})) {
-        const fieldName = fieldRaw; // keep original; matching is flexible
-        const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(fieldName));
+      // Get parameters for the dashboard
+      let parameters = [];
+      try {
+        parameters = await dashboard.getParametersAsync();
+        console.log("Available parameters:", parameters.map(p => p.name));
+      } catch (e) {
+        console.warn("Could not retrieve parameters:", e);
+      }
 
-        // If the worksheet has a range filter for this field, and the AI provided two values, apply range
-        if (wf && wf.filterType === "range") {
-          // Expect rawVals like ["2025-01-01","2025-01-31"] or [min, max]
-          if (Array.isArray(rawVals) && rawVals.length >= 2) {
-            const min = rawVals[0];
-            const max = rawVals[1];
-            try {
-              console.log(`Applying range filter ${fieldName}:`, min, max);
-              await targetWs.applyRangeFilterAsync(fieldName, min, max);
-              applied.push(fieldName);
-            } catch (err) {
-              console.error(`Failed to apply range filter ${fieldName}:`, err);
-              skipped.push(fieldName);
-            }
-            continue;
-          } else {
-            console.warn(`Range filter ${fieldName} expected 2 values, got:`, rawVals);
-            skipped.push(fieldName);
-            continue;
-          }
+      // Get summary data for validation
+      let summaryData = null;
+      let columns = null;
+      try {
+        summaryData = await targetWs.getSummaryDataAsync({ maxRows: 10000 });
+        columns = summaryData.columns;
+      } catch (e) {
+        console.warn("Could not retrieve summary data:", e);
+      }
+
+      for (const [fieldRaw, rawVals] of Object.entries(filtersObj || {})) {
+        const fieldName = fieldRaw.trim();
+        
+        // SPECIAL HANDLING FOR DATE GRANULARITY
+        // Map the AI's "Date Granularity" to the actual parameter name
+        let actualFieldName = fieldName;
+        if (fieldName.toLowerCase() === "date granularity") {
+          actualFieldName = "Date Granularity Selector"; // The actual parameter name
         }
 
-        // Otherwise treat as categorical
-        if (!Array.isArray(rawVals) || rawVals.length === 0) {
-          console.warn(`No values for filter ${fieldName}, skipping`);
+        // Check if this is a parameter, not a filter
+        const param = parameters.find(p => normalizeName(p.name) === normalizeName(actualFieldName));
+        if (param) {
+          // It's a parameter - set parameter value instead of filter
+          if (Array.isArray(rawVals) && rawVals.length > 0) {
+            const paramValue = String(rawVals[0]).trim();
+            try {
+              console.log(`Setting parameter ${actualFieldName} to:`, paramValue);
+              await param.changeValueAsync(paramValue);
+              applied.push(actualFieldName);
+            } catch (err) {
+              console.error(`Failed to set parameter ${actualFieldName}:`, err);
+              skipped.push(fieldName);
+            }
+          } else {
+            console.warn(`No values for parameter ${actualFieldName}, skipping`);
+            skipped.push(fieldName);
+          }
+          continue; // Move to next field
+        }
+
+        // It's a regular filter - proceed with validation
+        const colIndex = columns?.findIndex(c => normalizeName(c.fieldName) === normalizeName(actualFieldName));
+        if (colIndex === -1) {
+          console.warn(`Field '${actualFieldName}' not found in data source`);
           skipped.push(fieldName);
           continue;
         }
 
-        // For categorical filters, just pass the string values directly
-        // Tableau will match them against its domain
-        const stringValues = rawVals.map(v => String(v).trim());
+        // Get the actual field name from Tableau (with correct spacing/case)
+        const actualTableauFieldName = columns[colIndex].fieldName;
+
+        // Find filter metadata
+        const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(actualFieldName));
+
+        // For range filters
+        if (wf && wf.filterType === "range") {
+          if (Array.isArray(rawVals) && rawVals.length >= 2) {
+            try {
+              console.log(`Applying range filter ${actualTableauFieldName}:`, rawVals[0], rawVals[1]);
+              await targetWs.applyRangeFilterAsync(actualTableauFieldName, { min: rawVals[0], max: rawVals[1] });
+              applied.push(actualTableauFieldName);
+            } catch (err) {
+              console.error(`Failed to apply range filter ${actualTableauFieldName}:`, err);
+              skipped.push(fieldName);
+            }
+          } else {
+            console.warn(`Range filter ${actualTableauFieldName} expected 2 values, got:`, rawVals);
+            skipped.push(fieldName);
+          }
+          continue;
+        }
+
+        // For categorical filters - VALIDATE AGAINST DOMAIN
+        if (!Array.isArray(rawVals) || rawVals.length === 0) {
+          console.warn(`No values for filter ${actualTableauFieldName}, skipping`);
+          skipped.push(fieldName);
+          continue;
+        }
+
+        // Build domain map for validation
+        const domainValues = new Map(); // lowercase -> actual value
+        for (const row of summaryData.data) {
+          const cell = row[colIndex];
+          const fv = getCellFormattedValue(cell);
+          if (fv !== null && fv !== undefined) {
+            const key = String(fv).toLowerCase();
+            if (!domainValues.has(key)) {
+              domainValues.set(key, fv); // Store the first actual value
+            }
+          }
+        }
+
+        // Validate each AI-provided value
+        const validatedValues = [];
+        for (const rawVal of rawVals) {
+          const lowerRawVal = String(rawVal).toLowerCase();
+          if (domainValues.has(lowerRawVal)) {
+            validatedValues.push(domainValues.get(lowerRawVal)); // Use the actual domain value
+          } else {
+            console.warn(`Value '${rawVal}' not found in domain for field '${actualTableauFieldName}'. Available values:`, Array.from(domainValues.values()));
+          }
+        }
+
+        if (validatedValues.length === 0) {
+          console.warn(`No valid values found for filter ${actualTableauFieldName}, skipping`);
+          skipped.push(fieldName);
+          continue;
+        }
 
         try {
-          console.log(`Applying categorical filter ${fieldName} =>`, stringValues);
-          await targetWs.applyFilterAsync(fieldName, stringValues, tableau.FilterUpdateType.Replace);
-          applied.push(fieldName);
+          console.log(`Applying categorical filter ${actualTableauFieldName} with validated values:`, validatedValues);
+          await targetWs.applyFilterAsync(actualTableauFieldName, validatedValues, tableau.FilterUpdateType.Replace);
+          applied.push(actualTableauFieldName);
         } catch (err) {
-          console.error(`Failed to apply filter ${fieldName}:`, err);
+          console.error(`Failed to apply filter ${actualTableauFieldName}:`, err);
           skipped.push(fieldName);
         }
       } // end for each filter
