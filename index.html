@@ -63,8 +63,11 @@
         console.log("✅ Tableau Extension initialized. window.tableau:", !!window.tableau);
 
         const dashboard = tableau.extensions.dashboardContent.dashboard;
+        const worksheet = dashboard.worksheets.find(ws => ws.name.trim() === "Report Builder");
         console.log("Dashboard name:", dashboard.name);
         console.log("Worksheets available:", dashboard.worksheets.map(w => w.name));
+
+        dumpAllFilters(worksheet);
 
       } catch (err) {
         console.error("Failed to initialize Tableau Extension:", err);
@@ -127,6 +130,46 @@
         return null;
       }
     }
+
+    async function dumpAllFilters(worksheet) {
+        console.log("=== Worksheet Filters ===");
+
+        const filters = await worksheet.getFiltersAsync();
+        console.log(filters);
+
+        for (const filter of filters) {
+            console.log(`\n=== FILTER FIELD: ${filter.fieldName} ===`);
+            console.log(`Filter type: ${filter.filterType}`);
+
+            try {
+                if (filter.filterType === "categorical") {
+                    const appliedValues = filter.appliedValues || [];
+
+                    // Print applied values (if any)
+                    console.log("Applied values:", appliedValues.map(v => v.formattedValue));
+
+                    // Print full domain values
+                    if (filter.getDomainAsync) {
+                        const domain = await filter.getDomainAsync();
+                        console.log("Valid member names:", domain.values.map(v => v.formattedValue));
+                    } else {
+                        console.log("No domain information available.");
+                    }
+                }
+
+                if (filter.filterType === "range") {
+                    const domain = await filter.getDomainAsync();
+                    console.log("Min:", domain.minValue);
+                    console.log("Max:", domain.maxValue);
+                }
+
+            } catch (err) {
+                console.warn(`Error reading filter ${filter.fieldName}:`, err);
+            }
+        }
+    }
+
+
 
     // ---------- Core: apply filters from AI response ----------
     // In applyFiltersFromResponse, we need to:
