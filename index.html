@@ -143,16 +143,14 @@
         const fieldName = fieldRaw.trim();
         
         // SPECIAL HANDLING FOR DATE GRANULARITY
-        // Map the AI's "Date Granularity" to the actual parameter name
         let actualFieldName = fieldName;
         if (fieldName.toLowerCase() === "date granularity") {
-          actualFieldName = "Date Granularity Selector"; // The actual parameter name
+          actualFieldName = "Date Granularity Selector";
         }
 
-        // Check if this is a parameter, not a filter
+        // CHECK IF IT'S A PARAMETER
         const param = parameters.find(p => normalizeName(p.name) === normalizeName(actualFieldName));
         if (param) {
-          // It's a parameter - set parameter value instead of filter
           if (Array.isArray(rawVals) && rawVals.length > 0) {
             const paramValue = String(rawVals[0]).trim();
             try {
@@ -167,7 +165,7 @@
             console.warn(`No values for parameter ${actualFieldName}, skipping`);
             skipped.push(fieldName);
           }
-          continue; // Move to next field
+          continue;
         }
 
         // It's a regular filter - proceed with validation
@@ -178,25 +176,57 @@
           continue;
         }
 
-        // Get Tableau's actual field name (with correct spacing/case)
         const actualTableauFieldName = columns[colIndex].fieldName;
-
-        // Find filter metadata
         const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(actualFieldName));
 
-        // For range filters
+        // ========== ENHANCED DATE RANGE HANDLING ==========
         if (wf && wf.filterType === "range") {
-          if (Array.isArray(rawVals) && rawVals.length >= 2) {
+          if (Array.isArray(rawVals) && rawVals.length >= 1 && rawVals.length <= 2) {
             try {
-              console.log(`Applying range filter ${actualTableauFieldName}:`, rawVals[0], rawVals[1]);
-              await targetWs.applyRangeFilterAsync(actualTableauFieldName, { min: rawVals[0], max: rawVals[1] });
+              let minVal = rawVals[0];
+              let maxVal = rawVals.length === 2 ? rawVals[1] : null;
+              
+              // If only one date provided, auto-detect the missing bound
+              if (rawVals.length === 1) {
+                console.log(`Single date provided for range filter ${actualTableauFieldName}, auto-detecting range...`);
+                
+                // Get all date values from data
+                const dateValues = summaryData.data
+                  .map(row => getCellFormattedValue(row[colIndex]))
+                  .filter(v => v !== null && v !== undefined)
+                  .sort();
+                
+                if (dateValues.length > 0) {
+                  // Assume single date is start date, use data max as end date
+                  // For "2025", this means 2025-01-01 to max(date)
+                  minVal = rawVals[0];
+                  maxVal = dateValues[dateValues.length - 1];
+                  console.log(`Auto-detected date range: ${minVal} to ${maxVal}`);
+                } else {
+                  console.warn("No date values found in data, skipping");
+                  skipped.push(fieldName);
+                  continue;
+                }
+              }
+              
+              // Convert to Date objects (Tableau expects Date objects or ISO strings)
+              const minDate = new Date(minVal);
+              const maxDate = new Date(maxVal);
+              
+              console.log(`Applying range filter ${actualTableauFieldName}:`, minDate, "to", maxDate);
+              
+              await targetWs.applyRangeFilterAsync(actualTableauFieldName, { 
+                min: minDate, 
+                max: maxDate 
+              });
               applied.push(actualTableauFieldName);
+              
             } catch (err) {
               console.error(`Failed to apply range filter ${actualTableauFieldName}:`, err);
               skipped.push(fieldName);
             }
           } else {
-            console.warn(`Range filter ${actualTableauFieldName} expected 2 values, got:`, rawVals);
+            console.warn(`Range filter ${actualTableauFieldName} expected 1-2 values, got:`, rawVals);
             skipped.push(fieldName);
           }
           continue;
@@ -217,7 +247,7 @@
           if (fv !== null && fv !== undefined) {
             const key = String(fv).toLowerCase();
             if (!domainValues.has(key)) {
-              domainValues.set(key, fv); // Store the first actual value
+              domainValues.set(key, fv);
             }
           }
         }
@@ -227,9 +257,9 @@
         for (const rawVal of rawVals) {
           const lowerRawVal = String(rawVal).toLowerCase();
           if (domainValues.has(lowerRawVal)) {
-            validatedValues.push(domainValues.get(lowerRawVal)); // Use the actual domain value
+            validatedValues.push(domainValues.get(lowerRawVal));
           } else {
-            console.warn(`Value '${rawVal}' not found in domain for field '${actualTableauFieldName}'. Available values:`, Array.from(domainValues.values()));
+            console.warn(`Value '${rawVal}' not found in domain for field '${actualTableauFieldName}'`);
           }
         }
 
