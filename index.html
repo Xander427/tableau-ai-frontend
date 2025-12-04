@@ -108,7 +108,9 @@
         return { applied: [], skipped: Object.keys(filtersObj || {}) };
       }
 
-      console.log("Applying filters to worksheet:", targetWs.name);
+      console.log("========== APPLYING FILTERS ==========");
+      console.log("Filters from AI:", JSON.stringify(filtersObj, null, 2));
+      
       const applied = [];
       const skipped = [];
 
@@ -116,11 +118,16 @@
       let worksheetFilters = [];
       try {
         worksheetFilters = await targetWs.getFiltersAsync();
+        console.log("Current worksheet filters:", worksheetFilters.map(f => ({
+          field: f.fieldName,
+          type: f.filterType,
+          values: f.appliedValues?.map(v => v.value)
+        })));
       } catch (e) {
         console.warn("Could not retrieve worksheet filters metadata:", e);
       }
 
-      // Get parameters for the dashboard
+      // Get parameters
       let parameters = [];
       try {
         parameters = await dashboard.getParametersAsync();
@@ -129,156 +136,166 @@
         console.warn("Could not retrieve parameters:", e);
       }
 
-      // Get summary data for validation
+      // Get summary data
       let summaryData = null;
       let columns = null;
       try {
         summaryData = await targetWs.getSummaryDataAsync({ maxRows: 10000 });
         columns = summaryData.columns;
+        console.log("Data columns found:", columns.map(c => `'${c.fieldName}'`));
       } catch (e) {
         console.warn("Could not retrieve summary data:", e);
       }
 
       for (const [fieldRaw, rawVals] of Object.entries(filtersObj || {})) {
         const fieldName = fieldRaw.trim();
+        console.log(`\n--- Processing field: "${fieldName}" ---`);
+        console.log(`Values:`, rawVals);
         
-        // SPECIAL HANDLING FOR DATE GRANULARITY
+        // Map Date Granularity to parameter
         let actualFieldName = fieldName;
         if (fieldName.toLowerCase() === "date granularity") {
           actualFieldName = "Date Granularity Selector";
         }
 
-        // CHECK IF IT'S A PARAMETER
+        // CHECK PARAMETERS FIRST
         const param = parameters.find(p => normalizeName(p.name) === normalizeName(actualFieldName));
         if (param) {
+          console.log(`Found parameter: ${actualFieldName}`);
           if (Array.isArray(rawVals) && rawVals.length > 0) {
-            const paramValue = String(rawVals[0]).trim();
             try {
-              console.log(`Setting parameter ${actualFieldName} to:`, paramValue);
-              await param.changeValueAsync(paramValue);
+              await param.changeValueAsync(String(rawVals[0]).trim());
               applied.push(actualFieldName);
+              console.log(`✅ Parameter set successfully`);
             } catch (err) {
-              console.error(`Failed to set parameter ${actualFieldName}:`, err);
+              console.error(`❌ Failed to set parameter:`, err);
               skipped.push(fieldName);
             }
-          } else {
-            console.warn(`No values for parameter ${actualFieldName}, skipping`);
-            skipped.push(fieldName);
           }
           continue;
         }
 
-        // It's a regular filter - proceed with validation
-        const colIndex = columns?.findIndex(c => normalizeName(c.fieldName) === normalizeName(actualFieldName));
+        // ========== FIX 1: ROBUST FIELD MATCHING ==========
+        // Try to find the column by exact match first, then fuzzy match
+        let colIndex = columns?.findIndex(c => normalizeName(c.fieldName) === normalizeName(actualFieldName));
+        
+        // If not found, try case-insensitive contains
         if (colIndex === -1) {
-          console.warn(`Field '${actualFieldName}' not found in data source`);
+          colIndex = columns?.findIndex(c => 
+            normalizeName(c.fieldName).toLowerCase().includes(normalizeName(actualFieldName).toLowerCase())
+          );
+        }
+        
+        // If still not found, try to match against filter metadata
+        if (colIndex === -1) {
+          const filterMeta = worksheetFilters.find(f => 
+            normalizeName(f.fieldName) === normalizeName(actualFieldName)
+          );
+          if (filterMeta) {
+            // Try to find column by the filter's field name
+            colIndex = columns?.findIndex(c => 
+              normalizeName(c.fieldName) === normalizeName(filterMeta.fieldName)
+            );
+          }
+        }
+        
+        if (colIndex === -1) {
+          console.error(`❌ Field '${actualFieldName}' not found in data source. Available columns:`, 
+            columns?.map(c => c.fieldName));
           skipped.push(fieldName);
           continue;
         }
 
         const actualTableauFieldName = columns[colIndex].fieldName;
-        const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(actualFieldName));
+        console.log(`✅ Resolved field '${fieldName}' to column: '${actualTableauFieldName}'`);
 
-        // ========== ENHANCED DATE RANGE HANDLING ==========
+        const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(actualFieldName));
+        console.log(`Filter metadata:`, wf ? { name: wf.fieldName, type: wf.filterType } : 'NONE');
+
+        // ========== FIX 2: DATE RANGE HANDLING ==========
         if (wf && wf.filterType === "range") {
+          console.log(`Processing RANGE filter for ${actualTableauFieldName}`);
+          
           if (Array.isArray(rawVals) && rawVals.length >= 1 && rawVals.length <= 2) {
             try {
               let minVal = rawVals[0];
               let maxVal = rawVals.length === 2 ? rawVals[1] : null;
               
-              // If only one date provided, auto-detect the missing bound
+              // Auto-detect max date if only one provided
               if (rawVals.length === 1) {
-                console.log(`Single date provided for range filter ${actualTableauFieldName}, auto-detecting range...`);
+                console.log(`Only one date provided, auto-detecting max date from data...`);
                 
-                // Get all date values from data
                 const dateValues = summaryData.data
                   .map(row => getCellFormattedValue(row[colIndex]))
                   .filter(v => v !== null && v !== undefined)
                   .sort();
                 
                 if (dateValues.length > 0) {
-                  // Assume single date is start date, use data max as end date
-                  // For "2025", this means 2025-01-01 to max(date)
-                  minVal = rawVals[0];
                   maxVal = dateValues[dateValues.length - 1];
-                  console.log(`Auto-detected date range: ${minVal} to ${maxVal}`);
+                  console.log(`Auto-detected max date: ${maxVal}`);
                 } else {
-                  console.warn("No date values found in data, skipping");
+                  console.warn("No date values found in data");
                   skipped.push(fieldName);
                   continue;
                 }
               }
               
-              // Convert to Date objects (Tableau expects Date objects or ISO strings)
+              // Convert to Date objects
               const minDate = new Date(minVal);
               const maxDate = new Date(maxVal);
               
-              console.log(`Applying range filter ${actualTableauFieldName}:`, minDate, "to", maxDate);
+              console.log(`Applying range: ${minDate.toISOString()} to ${maxDate.toISOString()}`);
               
               await targetWs.applyRangeFilterAsync(actualTableauFieldName, { 
                 min: minDate, 
                 max: maxDate 
               });
               applied.push(actualTableauFieldName);
+              console.log(`✅ Range filter applied successfully`);
               
             } catch (err) {
-              console.error(`Failed to apply range filter ${actualTableauFieldName}:`, err);
+              console.error(`❌ Failed to apply range filter:`, err);
               skipped.push(fieldName);
             }
           } else {
-            console.warn(`Range filter ${actualTableauFieldName} expected 1-2 values, got:`, rawVals);
+            console.warn(`❌ Range filter expected 1-2 values, got:`, rawVals);
             skipped.push(fieldName);
           }
           continue;
         }
 
-        // For categorical filters - VALIDATE AGAINST DOMAIN
+        // ========== FIX 3: CATEGORICAL FILTER WITH DOMAIN DEBUGGING ==========
         // ========== FIXED: CATEGORICAL FILTER WITH FULL DOMAIN ==========
-        if (!Array.isArray(rawVals) || rawVals.length === 0) {
-          console.warn(`❌ No values for filter ${actualTableauFieldName}`);
-          skipped.push(fieldName);
-          continue;
-        }
+      if (!Array.isArray(rawVals) || rawVals.length === 0) {
+        console.warn(`❌ No values for filter ${actualTableauFieldName}`);
+        skipped.push(fieldName);
+        continue;
+      }
 
-        // Get domain from filter metadata (full domain, not filtered)
-        let domainValues = new Map();
-        let domainDisplay = [];
+      // Get domain from filter metadata (full domain, not filtered)
+      let domainValues = new Map();
+      let domainDisplay = [];
 
-        if (wf && wf.getDomainAsync) {
-          try {
-            const domain = await wf.getDomainAsync();
-            console.log(`Getting full domain for ${actualTableauFieldName}...`);
-            
-            for (const domainVal of domain.values) {
-              const fv = getCellFormattedValue(domainVal);
-              if (fv !== null && fv !== undefined) {
-                const key = String(fv).toLowerCase();
-                if (!domainValues.has(key)) {
-                  domainValues.set(key, fv);
-                  domainDisplay.push(fv);
-                }
-              }
-            }
-            console.log(`Full domain values:`, domainDisplay);
-          } catch (e) {
-            console.warn(`Could not get domain for ${actualTableauFieldName}, falling back to summary data:`, e);
-            
-            // Fallback to summary data if getDomainAsync fails
-            for (const row of summaryData.data) {
-              const cell = row[colIndex];
-              const fv = getCellFormattedValue(cell);
-              if (fv !== null && fv !== undefined) {
-                const key = String(fv).toLowerCase();
-                if (!domainValues.has(key)) {
-                  domainValues.set(key, fv);
-                  domainDisplay.push(fv);
-                }
+      if (wf && wf.getDomainAsync) {
+        try {
+          const domain = await wf.getDomainAsync();
+          console.log(`Getting full domain for ${actualTableauFieldName}...`);
+          
+          for (const domainVal of domain.values) {
+            const fv = getCellFormattedValue(domainVal);
+            if (fv !== null && fv !== undefined) {
+              const key = String(fv).toLowerCase();
+              if (!domainValues.has(key)) {
+                domainValues.set(key, fv);
+                domainDisplay.push(fv);
               }
             }
           }
-        } else {
-          // Fallback to summary data if no getDomainAsync
-          console.warn(`No getDomainAsync available for ${actualTableauFieldName}, using summary data`);
+          console.log(`Full domain values:`, domainDisplay);
+        } catch (e) {
+          console.warn(`Could not get domain for ${actualTableauFieldName}, falling back to summary data:`, e);
+          
+          // Fallback to summary data if getDomainAsync fails
           for (const row of summaryData.data) {
             const cell = row[colIndex];
             const fv = getCellFormattedValue(cell);
@@ -291,37 +308,55 @@
             }
           }
         }
-
-        console.log(`Domain values for ${actualTableauFieldName}:`, domainDisplay);
-
-        // Validate each AI-provided value
-        const validatedValues = [];
-        for (const rawVal of rawVals) {
-          const lowerRawVal = String(rawVal).toLowerCase();
-          if (domainValues.has(lowerRawVal)) {
-            validatedValues.push(domainValues.get(lowerRawVal));
-          } else {
-            console.error(`❌ Value '${rawVal}' not found in domain. Available:`, domainDisplay);
+      } else {
+        // Fallback to summary data if no getDomainAsync
+        console.warn(`No getDomainAsync available for ${actualTableauFieldName}, using summary data`);
+        for (const row of summaryData.data) {
+          const cell = row[colIndex];
+          const fv = getCellFormattedValue(cell);
+          if (fv !== null && fv !== undefined) {
+            const key = String(fv).toLowerCase();
+            if (!domainValues.has(key)) {
+              domainValues.set(key, fv);
+              domainDisplay.push(fv);
+            }
           }
         }
+      }
 
-        if (validatedValues.length === 0) {
-          console.error(`❌ No valid values found for filter ${actualTableauFieldName}`);
-          skipped.push(fieldName);
-          continue;
-        }
+      console.log(`Domain values for ${actualTableauFieldName}:`, domainDisplay);
 
-        try {
-          console.log(`Applying categorical filter ${actualTableauFieldName} with:`, validatedValues);
-          await targetWs.applyFilterAsync(actualTableauFieldName, validatedValues, tableau.FilterUpdateType.Replace);
-          applied.push(actualTableauFieldName);
-          console.log(`✅ Categorical filter applied successfully`);
-        } catch (err) {
-          console.error(`❌ Failed to apply filter:`, err);
-          skipped.push(fieldName);
+      // Validate each AI-provided value
+      const validatedValues = [];
+      for (const rawVal of rawVals) {
+        const lowerRawVal = String(rawVal).toLowerCase();
+        if (domainValues.has(lowerRawVal)) {
+          validatedValues.push(domainValues.get(lowerRawVal));
+        } else {
+          console.error(`❌ Value '${rawVal}' not found in domain. Available:`, domainDisplay);
         }
+      }
+
+      if (validatedValues.length === 0) {
+        console.error(`❌ No valid values found for filter ${actualTableauFieldName}`);
+        skipped.push(fieldName);
+        continue;
+      }
+
+      try {
+        console.log(`Applying categorical filter ${actualTableauFieldName} with:`, validatedValues);
+        await targetWs.applyFilterAsync(actualTableauFieldName, validatedValues, tableau.FilterUpdateType.Replace);
+        applied.push(actualTableauFieldName);
+        console.log(`✅ Categorical filter applied successfully`);
+      } catch (err) {
+        console.error(`❌ Failed to apply filter:`, err);
+        skipped.push(fieldName);
+      }
       } // end for each filter
 
+      console.log("\n========== FINAL RESULT ==========");
+      console.log("Applied:", applied);
+      console.log("Skipped:", skipped);
       return { applied, skipped };
     }
 
