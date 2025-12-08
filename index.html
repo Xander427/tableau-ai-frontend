@@ -286,7 +286,7 @@
         // TRUSTED FIELDS - bypass domain validation
         const TRUSTED_FIELDS = ["Channel", "Publisher", "Platform"];
         
-        if (TRUSTED_FIELDS.includes(actualFieldName)) {
+        if (TRUSTED_FIELDS.some(field => normalizeName(field) === normalizeName(actualFieldName))) {
           console.log(`Bypassing validation for: ${actualFieldName}`);
           const validatedValues = rawVals.map(v => String(v).trim());
           
