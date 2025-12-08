@@ -57,17 +57,26 @@
 
   <script>
     // ---------- Initialization ----------
+    let globalColumns = null;
+
+    // In your init() function:
     async function init() {
       try {
         await tableau.extensions.initializeAsync();
-        console.log("✅ Tableau Extension initialized. window.tableau:", !!window.tableau);
+        console.log("✅ Tableau Extension initialized");
 
         const dashboard = tableau.extensions.dashboardContent.dashboard;
-        console.log("Dashboard name:", dashboard.name);
-        console.log("Worksheets available:", dashboard.worksheets.map(w => w.name));
-
+        const targetWs = findWorksheetByName(dashboard, "Report Builder ");
+        
+        // Fetch and cache columns during init
+        if (targetWs) {
+          const summaryData = await targetWs.getSummaryDataAsync({ maxrows: 10000 });
+          globalColumns = summaryData.columns;
+          console.log("Columns cached during init:", globalColumns.map(c => c.fieldName));
+        }
+        
       } catch (err) {
-        console.error("Failed to initialize Tableau Extension:", err);
+        console.error("Failed to initialize:", err);
       }
     }
 
@@ -136,16 +145,16 @@
         console.warn("Could not retrieve parameters:", e);
       }
 
-      // Get summary data ONCE for range filters
-      let summaryData = null;
-      let columns = null;
-      try {
-        summaryData = await targetWs.getSummaryDataAsync({ maxRows: 10000 });
-        columns = summaryData.columns;
-        console.log("Data columns found:", columns.map(c => `'${c.fieldName}'`));
-      } catch (e) {
-        console.warn("Could not retrieve summary data:", e);
+      // Use cached columns instead of fetching fresh
+      const columns = globalColumns;
+      if (!columns) {
+        console.error("❌ No cached columns available! Make sure init() completed successfully.");
+        return { applied: [], skipped: Object.keys(filtersObj || {}) };
       }
+      console.log("Using cached columns:", columns.map(c => `'${c.fieldName}'`));
+
+      // We'll fetch summary data only if needed for date range auto-detection
+      let summaryData = null;
 
       for (const [fieldRaw, rawVals] of Object.entries(filtersObj || {})) {
         const fieldName = fieldRaw.trim();
@@ -197,12 +206,22 @@
                 if (rawVals.length === 1) {
                   console.log(`Only one date provided, auto-detecting max date from data...`);
                   
+                  // Fetch summary data only now, when needed
+                  if (!summaryData) {
+                    try {
+                      summaryData = await targetWs.getSummaryDataAsync({ maxRows: 10000 });
+                      console.log("Fetched summary data for date range detection");
+                    } catch (e) {
+                      console.warn("Could not retrieve summary data:", e);
+                    }
+                  }
+                  
                   // Find the date column index
                   const dateColIndex = columns?.findIndex(c => 
                     normalizeName(c.fieldName).toLowerCase() === 'date'
                   );
                   
-                  if (dateColIndex !== -1) {
+                  if (dateColIndex !== -1 && summaryData) {
                     const dateValues = summaryData.data
                       .map(row => getCellFormattedValue(row[dateColIndex]))
                       .filter(v => v !== null && v !== undefined)
@@ -317,14 +336,26 @@
         // If getDomainAsync failed or returned empty, use summary data as fallback
         if (domainValues.size === 0) {
           console.warn(`Using summary data for domain (may be filtered)`);
-          for (const row of summaryData.data) {
-            const cell = row[colIndex];
-            const fv = getCellFormattedValue(cell);
-            if (fv !== null && fv !== undefined) {
-              const key = String(fv).toLowerCase();
-              if (!domainValues.has(key)) {
-                domainValues.set(key, fv);
-                domainDisplay.push(fv);
+          
+          // Fetch summary data if not already fetched
+          if (!summaryData) {
+            try {
+              summaryData = await targetWs.getSummaryDataAsync({ maxRows: 10000 });
+            } catch (e) {
+              console.warn("Could not retrieve summary data:", e);
+            }
+          }
+          
+          if (summaryData) {
+            for (const row of summaryData.data) {
+              const cell = row[colIndex];
+              const fv = getCellFormattedValue(cell);
+              if (fv !== null && fv !== undefined) {
+                const key = String(fv).toLowerCase();
+                if (!domainValues.has(key)) {
+                  domainValues.set(key, fv);
+                  domainDisplay.push(fv);
+                }
               }
             }
           }
