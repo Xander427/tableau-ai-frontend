@@ -153,6 +153,47 @@
       }
       console.log("Using cached columns:", columns.map(c => `'${c.fieldName}'`));
 
+      // ========== CLEAR FILTERS NOT IN AI RESPONSE ==========
+      console.log("\n========== CLEARING OLD FILTERS ==========");
+      const aiFilterFields = new Set(Object.keys(filtersObj || {}));
+
+      // Add the parameter field mapping so we don't clear it by mistake
+      if (filtersObj && filtersObj["Date Granularity"]) {
+        aiFilterFields.add("Date Granularity Selector");
+      }
+
+      for (const currentFilter of worksheetFilters) {
+        const filterFieldName = currentFilter.fieldName;
+        
+        // Skip if this filter is in the AI response (we'll update it later)
+        if (aiFilterFields.has(filterFieldName)) {
+          console.log(`Keeping filter (in AI response): ${filterFieldName}`);
+          continue;
+        }
+        
+        // Skip parameter fields since they're handled separately
+        const isParameter = parameters.some(p => normalizeName(p.name) === normalizeName(filterFieldName));
+        if (isParameter) {
+          console.log(`Skipping parameter field: ${filterFieldName}`);
+          continue;
+        }
+        
+        // Clear this filter
+        console.log(`Clearing filter: ${filterFieldName}`);
+        try {
+          if (currentFilter.filterType === "categorical") {
+            await targetWs.applyFilterAsync(filterFieldName, [], tableau.FilterUpdateType.Replace);
+            console.log(`✅ Cleared categorical filter: ${filterFieldName}`);
+          } else if (currentFilter.filterType === "range") {
+            // For range filters, set to full domain (null = remove filter)
+            await targetWs.applyRangeFilterAsync(filterFieldName, { min: null, max: null });
+            console.log(`✅ Cleared range filter: ${filterFieldName}`);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Could not clear filter ${filterFieldName}:`, err);
+        }
+      }
+
       // We'll fetch summary data only if needed for date range auto-detection
       let summaryData = null;
 
