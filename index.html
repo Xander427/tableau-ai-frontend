@@ -156,6 +156,7 @@
       // ========== CLEAR FILTERS NOT IN AI RESPONSE ==========
       console.log("\n========== CLEARING OLD FILTERS ==========");
       const aiFilterFields = new Set(Object.keys(filtersObj || {}));
+      const INTERNAL_FILTERS = ["Measure Names", "Measure Values"]; // Never clear these
 
       // Add the parameter field mapping so we don't clear it by mistake
       if (filtersObj && filtersObj["Date Granularity"]) {
@@ -164,6 +165,12 @@
 
       for (const currentFilter of worksheetFilters) {
         const filterFieldName = currentFilter.fieldName;
+        
+        // Skip internal/system filters
+        if (INTERNAL_FILTERS.includes(filterFieldName)) {
+          console.log(`Skipping internal filter: ${filterFieldName}`);
+          continue;
+        }
         
         // Skip if this filter is in the AI response (we'll update it later)
         if (aiFilterFields.has(filterFieldName)) {
@@ -185,7 +192,6 @@
             await targetWs.applyFilterAsync(filterFieldName, [], tableau.FilterUpdateType.Replace);
             console.log(`✅ Cleared categorical filter: ${filterFieldName}`);
           } else if (currentFilter.filterType === "range") {
-            // For range filters, set to full domain (null = remove filter)
             await targetWs.applyRangeFilterAsync(filterFieldName, { min: null, max: null });
             console.log(`✅ Cleared range filter: ${filterFieldName}`);
           }
