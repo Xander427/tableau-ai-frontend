@@ -153,55 +153,6 @@
       }
       console.log("Using cached columns:", columns.map(c => `'${c.fieldName}'`));
 
-      // ========== CLEAR FILTERS NOT IN AI RESPONSE ==========
-      console.log("\n========== CLEARING OLD FILTERS ==========");
-      const aiFilterFields = new Set(Object.keys(filtersObj || {}));
-      const INTERNAL_FILTERS = ["Measure Names", "Measure Values"]; // Never clear these
-
-      // Add the parameter field mapping so we don't clear it by mistake
-      if (filtersObj && filtersObj["Date Granularity"]) {
-        aiFilterFields.add("Date Granularity Selector");
-      }
-
-      for (const currentFilter of worksheetFilters) {
-        const filterFieldName = currentFilter.fieldName;
-        
-        // Skip internal/system filters
-        if (INTERNAL_FILTERS.includes(filterFieldName)) {
-          console.log(`Skipping internal filter: ${filterFieldName}`);
-          continue;
-        }
-        
-        // Skip if this filter is in the AI response (we'll update it later)
-        if (aiFilterFields.has(filterFieldName)) {
-          console.log(`Keeping filter (in AI response): ${filterFieldName}`);
-          continue;
-        }
-        
-        // Skip parameter fields since they're handled separately
-        const isParameter = parameters.some(p => normalizeName(p.name) === normalizeName(filterFieldName));
-        if (isParameter) {
-          console.log(`Skipping parameter field: ${filterFieldName}`);
-          continue;
-        }
-        
-        // Instead of clearing with [], reset to All values
-        if (currentFilter.filterType === "categorical") {
-          try {
-            const domain = await currentFilter.getDomainAsync();
-            const allValues = domain.values.map(v => {
-              const fv = getCellFormattedValue(v);
-              return fv;
-            }).filter(v => v !== null && v !== undefined);
-            
-            await targetWs.applyFilterAsync(filterFieldName, allValues, tableau.FilterUpdateType.Replace);
-            console.log(`✅ Reset filter to All: ${filterFieldName}`);
-          } catch (err) {
-            console.warn(`⚠️ Could not reset filter ${filterFieldName}:`, err);
-          }
-        }
-      }
-
       // We'll fetch summary data only if needed for date range auto-detection
       let summaryData = null;
 
