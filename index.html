@@ -185,18 +185,20 @@
           continue;
         }
         
-        // Clear this filter
-        console.log(`Clearing filter: ${filterFieldName}`);
-        try {
-          if (currentFilter.filterType === "categorical") {
-            await targetWs.applyFilterAsync(filterFieldName, [], tableau.FilterUpdateType.Replace);
-            console.log(`✅ Cleared categorical filter: ${filterFieldName}`);
-          } else if (currentFilter.filterType === "range") {
-            await targetWs.applyRangeFilterAsync(filterFieldName, { min: null, max: null });
-            console.log(`✅ Cleared range filter: ${filterFieldName}`);
+        // Instead of clearing with [], reset to All values
+        if (currentFilter.filterType === "categorical") {
+          try {
+            const domain = await currentFilter.getDomainAsync();
+            const allValues = domain.values.map(v => {
+              const fv = getCellFormattedValue(v);
+              return fv;
+            }).filter(v => v !== null && v !== undefined);
+            
+            await targetWs.applyFilterAsync(filterFieldName, allValues, tableau.FilterUpdateType.Replace);
+            console.log(`✅ Reset filter to All: ${filterFieldName}`);
+          } catch (err) {
+            console.warn(`⚠️ Could not reset filter ${filterFieldName}:`, err);
           }
-        } catch (err) {
-          console.warn(`⚠️ Could not clear filter ${filterFieldName}:`, err);
         }
       }
 
