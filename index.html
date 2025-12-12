@@ -407,9 +407,8 @@
       try {
         const res = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
           method: "POST",
-          headers: { "Content-Type": "application/json",
-            "X-Extension-Secret": "d07b806149e4e22bde0d68319e08d5892a7072090ae0b8d45903b8b3dd4de62a"
-           },
+          headers: { "Content-Type": "application/json"
+            },
           body: JSON.stringify({ query: question })
         });
 
