@@ -404,12 +404,23 @@
       if (!question) { output.innerText = "Please enter a question."; return; }
       output.innerHTML = "<em>Thinking...</em>";
 
+      // get user context - capture all 4 fields, but only send username to table.
+      const user = tableau.extensions.environment.user;
+      const userContext = {
+        username: user?.username ?? "unknown",
+        fullName: user?.fullName ?? null,
+        role: user?.role ?? null,
+        domain: user?.domain ?? null
+      };
+
       try {
         const res = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
           method: "POST",
           headers: { "Content-Type": "application/json"
             },
-          body: JSON.stringify({ query: question })
+          body: JSON.stringify({ query: question,
+            user: userContext
+           })
         });
 
         if (!res.ok) {
