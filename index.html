@@ -413,6 +413,9 @@
         domain: user?.domain ?? null
       };
 
+      console.log("Tableau environment:", tableau.extensions.environment);
+      console.log("Tableau user object:", tableau.extensions.environment.user);
+
       try {
         const res = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
           method: "POST",
