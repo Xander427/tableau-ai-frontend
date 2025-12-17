@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>AI Data Assistant</title>
 
-  <!-- Local extension API - you already have this file in your site root -->
+  <!-- Local extension API - in site root -->
   <script src="tableau.extensions.1.14.0.min.js"></script>
 
   <style>
@@ -54,6 +54,23 @@
     .warn { color: #b36b00; }
     .err { color: #b00020; }
   </style>
+
+  <script>
+    // ---------- Persistent client identifier ----------
+    function getClientId() {
+      const STORAGE_KEY = "tableau_ai_client_id";
+      let id = localStorage.getItem(STORAGE_KEY);
+
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem(STORAGE_KEY, id);
+        console.log("🆕 Generated new client_id:", id);
+      }
+
+      return id;
+    }
+  </script>
+
 
   <script>
     // ---------- Initialization ----------
@@ -404,17 +421,7 @@
       if (!question) { output.innerText = "Please enter a question."; return; }
       output.innerHTML = "<em>Thinking...</em>";
 
-      // get user context - capture all 4 fields, but only send username to table.
-      const user = tableau.extensions.environment.user;
-      const userContext = {
-        username: user?.username ?? "unknown",
-        fullName: user?.fullName ?? null,
-        role: user?.role ?? null,
-        domain: user?.domain ?? null
-      };
-
-      console.log("Tableau environment:", tableau.extensions.environment);
-      console.log("Tableau user object:", tableau.extensions.environment.user);
+      const clientId = getClientId();
 
       try {
         const res = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
@@ -422,7 +429,7 @@
           headers: { "Content-Type": "application/json"
             },
           body: JSON.stringify({ query: question,
-            user: userContext
+            client_id: clientId
            })
         });
 
