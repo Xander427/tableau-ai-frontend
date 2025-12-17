@@ -71,6 +71,17 @@
     }
   </script>
 
+  <script>
+    // ---------- Check if running in Tableau ----------
+    function isRunningInTableau() {
+      return (
+        typeof tableau !== "undefined" &&
+        tableau.extensions &&
+        tableau.extensions.environment &&
+        tableau.extensions.environment.context === "server"
+      );
+    }
+  </script>
 
   <script>
     // ---------- Initialization ----------
@@ -416,6 +427,14 @@
 
     // ---------- askAI() - calls backend and then applies filters ----------
     async function askAI() {
+
+      if (!isRunningInTableau()) {
+        output.innerHTML = `<div class="err">
+          Unauthorized use.
+        </div>`;
+        return;
+      }
+
       const question = document.getElementById("question").value.trim();
       const output = document.getElementById("output");
       if (!question) { output.innerText = "Please enter a question."; return; }
