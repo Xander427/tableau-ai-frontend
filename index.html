@@ -442,13 +442,23 @@
 
       const clientId = getClientId();
 
+      const tableauEnv = tableau.extensions.environment;
+
+      const tableauContext = {
+        context: tableauEnv.context,
+        apiVersion: tableauEnv.apiVersion,
+        locale: tableauEnv.language
+};
+
       try {
         const res = await fetch("https://ej-tableau-ai-api-c5gvdag0gdhrbnca.eastus-01.azurewebsites.net/ai_query", {
           method: "POST",
-          headers: { "Content-Type": "application/json"
+          headers: { "Content-Type": "application/json",
+            "X-Tableau-Extension": "true"
             },
           body: JSON.stringify({ query: question,
-            client_id: clientId
+            client_id: clientId,
+            tableau: tableauContext
            })
         });
 
