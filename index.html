@@ -221,6 +221,21 @@
           // Use the actual field name from metadata
           actualFieldName = wf.fieldName;
           
+          // For categorical worksheet filters — field is confirmed, skip column lookup
+          if (wf.filterType !== "range") {
+            console.log(`Applying categorical filter via worksheetFilter metadata: ${actualFieldName}`);
+            const validatedValues = rawVals.map(v => String(v).trim());
+            try {
+              await targetWs.applyFilterAsync(actualFieldName, validatedValues, tableau.FilterUpdateType.Replace);
+              applied.push(actualFieldName);
+              console.log(`✅ Categorical worksheet filter applied`);
+            } catch (err) {
+              console.error(`❌ Failed to apply categorical worksheet filter:`, err);
+              skipped.push(fieldName);
+            }
+            continue;
+          }
+
           // For range filters (date)
           if (wf.filterType === "range") {
             console.log(`Processing RANGE filter for ${actualFieldName}`);
