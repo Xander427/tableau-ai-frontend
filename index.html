@@ -461,27 +461,43 @@
 
       // From twbx: Channel, Platform, journeyPhase use function='except' (exclude mode).
       // isExcludeMode in Extensions API 1.14.0 returns false for all — hardcode instead.
-      // Include-mode: All+[] = "include everything". Exclude-mode: Replace+[] = "exclude nothing".
+      // For exclude-mode fields: get full domain via getDomainAsync and apply as include-mode
+      // so the filter chip shows "(All)" and behaves normally. { isExcludeMode: true } with
+      // empty values shows "(None)" and makes the UI appear inverted — avoid it.
       const EXCLUDE_MODE_FIELDS = ["Channel", "Platform", "Journey Phase"];
 
       for (const f of filters) {
-        // Skip: FunnelStrategy (set explicitly below), Measure Names (workbook defaults),
-        // date (AI sets range via applyFiltersFromResponse; categorical entry is a no-op)
+        // Skip: FunnelStrategy (set explicitly below), date (AI sets range; categorical is ghost)
+        // Measure Names IS reset here via FilterUpdateType.All so it doesn't stick from prior query
         if (normalizeName(f.fieldName) === "FunnelStrategy" ||
-            normalizeName(f.fieldName) === "Measure Names" ||
             normalizeName(f.fieldName).toLowerCase() === "date") continue;
 
         try {
           const isExclude = EXCLUDE_MODE_FIELDS.some(
             name => normalizeName(name) === normalizeName(f.fieldName)
           );
-          if (isExclude) {
-            // Preserve exclude mode — empty exclusion list = exclude nothing = show all
-            await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.Replace, { isExcludeMode: true });
+          if (isExclude && f.getDomainAsync) {
+            // Apply all domain values as include-mode → shows "(All)", normal UI behavior
+            try {
+              const domain = await f.getDomainAsync('database');
+              const allValues = domain.values
+                .map(v => getCellFormattedValue(v))
+                .filter(v => v != null && v !== '' && String(v).toLowerCase() !== 'null');
+              if (allValues.length > 0) {
+                await targetWs.applyFilterAsync(f.fieldName, allValues, tableau.FilterUpdateType.Replace);
+                console.log(`Reset exclude→include-All: ${f.fieldName} (${allValues.length} vals)`);
+              } else {
+                await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.Replace, { isExcludeMode: true });
+                console.log(`Reset exclude (domain empty, fallback): ${f.fieldName}`);
+              }
+            } catch (domainErr) {
+              console.warn(`getDomainAsync failed for ${f.fieldName}, using fallback:`, domainErr);
+              await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.Replace, { isExcludeMode: true });
+            }
           } else {
             await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.All);
+            console.log(`Reset filter: ${f.fieldName} (include-All)`);
           }
-          console.log(`Reset filter: ${f.fieldName} (hardcodedExclude=${isExclude})`);
         } catch (e) {
           console.warn(`Could not reset filter '${f.fieldName}':`, e);
         }
