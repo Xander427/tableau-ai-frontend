@@ -213,7 +213,12 @@
         }
 
         // CHECK FILTER METADATA
-        const wf = worksheetFilters.find(f => normalizeName(f.fieldName) === normalizeName(actualFieldName));
+        // Prefer range entry over categorical when both exist (date appears twice in getFiltersAsync)
+        const wf = worksheetFilters.find(f =>
+            normalizeName(f.fieldName) === normalizeName(actualFieldName) && f.filterType === 'range'
+          ) || worksheetFilters.find(f =>
+            normalizeName(f.fieldName) === normalizeName(actualFieldName)
+          );
         
         if (wf) {
           console.log(`Found filter metadata:`, { name: wf.fieldName, type: wf.filterType });
@@ -454,20 +459,27 @@
         console.warn("Could not retrieve filters for reset:", e);
       }
 
+      // From twbx: Channel, Platform, journeyPhase use function='except' (exclude mode).
+      // isExcludeMode in Extensions API 1.14.0 returns false for all — hardcode instead.
+      // Include-mode: All+[] = "include everything". Exclude-mode: Replace+[] = "exclude nothing".
+      const EXCLUDE_MODE_FIELDS = ["Channel", "Platform", "Journey Phase"];
+
       for (const f of filters) {
-        // Skip FunnelStrategy (set explicitly below) and Measure Names (has hardcoded workbook defaults)
+        // Skip: FunnelStrategy (set explicitly below), Measure Names (workbook defaults),
+        // date (AI sets range via applyFiltersFromResponse; categorical entry is a no-op)
         if (normalizeName(f.fieldName) === "FunnelStrategy" ||
-            normalizeName(f.fieldName) === "Measure Names") continue;
+            normalizeName(f.fieldName) === "Measure Names" ||
+            normalizeName(f.fieldName).toLowerCase() === "date") continue;
 
         try {
-          // Exclude-mode filters use function='except' in Tableau — clearing with All means
-          // "exclude everything" = (None). For those, Replace+[] means "exclude nothing" = (All).
-          // Include-mode filters: All+[] = "include everything" = (All).
-          const updateType = f.isExcludeMode
+          const isExclude = EXCLUDE_MODE_FIELDS.some(
+            name => normalizeName(name) === normalizeName(f.fieldName)
+          );
+          const updateType = isExclude
             ? tableau.FilterUpdateType.Replace
             : tableau.FilterUpdateType.All;
           await targetWs.applyFilterAsync(f.fieldName, [], updateType);
-          console.log(`Reset filter: ${f.fieldName} (excludeMode=${f.isExcludeMode})`);
+          console.log(`Reset filter: ${f.fieldName} (hardcodedExclude=${isExclude})`);
         } catch (e) {
           console.warn(`Could not reset filter '${f.fieldName}':`, e);
         }
