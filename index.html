@@ -475,10 +475,12 @@
           const isExclude = EXCLUDE_MODE_FIELDS.some(
             name => normalizeName(name) === normalizeName(f.fieldName)
           );
-          const updateType = isExclude
-            ? tableau.FilterUpdateType.Replace
-            : tableau.FilterUpdateType.All;
-          await targetWs.applyFilterAsync(f.fieldName, [], updateType);
+          if (isExclude) {
+            // Preserve exclude mode — empty exclusion list = exclude nothing = show all
+            await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.Replace, { isExcludeMode: true });
+          } else {
+            await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.All);
+          }
           console.log(`Reset filter: ${f.fieldName} (hardcodedExclude=${isExclude})`);
         } catch (e) {
           console.warn(`Could not reset filter '${f.fieldName}':`, e);
