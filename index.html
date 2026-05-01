@@ -440,25 +440,37 @@
       return { applied, skipped };
     }
 
-    // ---------- Reset FunnelStrategy to default before each new question ----------
+    // ---------- Reset filters to defaults before each new question ----------
     async function resetToDefaults() {
       if (!window.tableau) return;
       const dashboard = tableau.extensions.dashboardContent.dashboard;
       const targetWs = findWorksheetByName(dashboard, "Report Builder ");
       if (!targetWs) return;
 
+      let filters = [];
       try {
-        const filters = await targetWs.getFiltersAsync();
-        for (const f of filters) {
-          try {
-            await targetWs.applyFilterAsync(f.fieldName, [], tableau.FilterUpdateType.All);
-            console.log(`Cleared filter: ${f.fieldName}`);
-          } catch (e) {
-            console.warn(`Could not clear filter '${f.fieldName}':`, e);
-          }
-        }
+        filters = await targetWs.getFiltersAsync();
       } catch (e) {
         console.warn("Could not retrieve filters for reset:", e);
+      }
+
+      for (const f of filters) {
+        // Skip FunnelStrategy (set explicitly below) and Measure Names (has hardcoded workbook defaults)
+        if (normalizeName(f.fieldName) === "FunnelStrategy" ||
+            normalizeName(f.fieldName) === "Measure Names") continue;
+
+        try {
+          // Exclude-mode filters use function='except' in Tableau — clearing with All means
+          // "exclude everything" = (None). For those, Replace+[] means "exclude nothing" = (All).
+          // Include-mode filters: All+[] = "include everything" = (All).
+          const updateType = f.isExcludeMode
+            ? tableau.FilterUpdateType.Replace
+            : tableau.FilterUpdateType.All;
+          await targetWs.applyFilterAsync(f.fieldName, [], updateType);
+          console.log(`Reset filter: ${f.fieldName} (excludeMode=${f.isExcludeMode})`);
+        } catch (e) {
+          console.warn(`Could not reset filter '${f.fieldName}':`, e);
+        }
       }
 
       try {
