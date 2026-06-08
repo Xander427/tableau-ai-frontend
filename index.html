@@ -229,7 +229,29 @@
           // For categorical worksheet filters — field is confirmed, skip column lookup
           if (wf.filterType !== "range") {
             console.log(`Applying categorical filter via worksheetFilter metadata: ${actualFieldName}`);
-            const validatedValues = rawVals.map(v => String(v).trim());
+            let validatedValues = rawVals.map(v => String(v).trim());
+            // Validate against domain for accurate case matching (e.g. "250K" vs "250k")
+            if (wf.getDomainAsync) {
+              try {
+                const domain = await wf.getDomainAsync();
+                const domainMap = new Map();
+                for (const dv of domain.values) {
+                  const fv = getCellFormattedValue(dv);
+                  if (fv != null) domainMap.set(String(fv).toLowerCase(), String(fv));
+                }
+                if (domainMap.size > 0) {
+                  const matched = validatedValues
+                    .map(v => domainMap.get(v.toLowerCase()))
+                    .filter(v => v != null);
+                  if (matched.length > 0) {
+                    console.log(`Domain-validated values for ${actualFieldName}:`, matched);
+                    validatedValues = matched;
+                  }
+                }
+              } catch (e) {
+                console.warn(`Could not get domain for ${actualFieldName}, using raw values:`, e);
+              }
+            }
             try {
               await targetWs.applyFilterAsync(actualFieldName, validatedValues, tableau.FilterUpdateType.Replace);
               applied.push(actualFieldName);
