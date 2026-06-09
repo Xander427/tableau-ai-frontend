@@ -577,10 +577,11 @@
 
         const data = await res.json();
 
+        console.log("SQL:", data.sql ?? "(none)");
+
         output.innerHTML = `
           <b>Summary:</b><br>${data.summary || "(no summary)"}<br><br>
-          <b>Top rows (sample):</b><br><pre>${JSON.stringify(data.rows?.slice(0,10) ?? [], null, 2)}</pre><br>
-          <b>SQL:</b><br><pre>${data.sql ?? "(none)"}</pre>
+          <b>Top rows (sample):</b><br><pre>${JSON.stringify(data.rows?.slice(0,10) ?? [], null, 2)}</pre>
         `;
 
         if (data.filters && Object.keys(data.filters).length > 0) {
@@ -590,9 +591,9 @@
           const result = await applyFiltersFromResponse(data.filters, "Report Builder ");
           console.log("applyFiltersFromResponse result:", result);
 
-          output.innerHTML += `<div class="log">Filters applied: ${JSON.stringify(result.applied)}</div>`;
+          console.log("Filters applied:", JSON.stringify(result.applied));
           if (result.skipped && result.skipped.length) {
-            output.innerHTML += `<div class="warn">Filters skipped / not matched: ${JSON.stringify(result.skipped)}</div>`;
+            console.log("Filters skipped / not matched:", JSON.stringify(result.skipped));
           }
         } else {
           console.log("No filters returned from AI.");
